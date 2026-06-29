@@ -12,6 +12,7 @@ use App\Models\TradingAccount;
 use App\Support\TradeCostCalculator;
 use Flux\Flux;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
@@ -88,12 +89,12 @@ new class extends BaseIndexComponent {
     {
         $trade = Trade::findOrFail($id);
         $this->editingId = $trade->id;
-        $this->trade_date = thai_date($trade->trade_date);
+        $this->trade_date = $trade->trade_date->toDateString();
         $this->contract = $trade->contract;
         $this->position_type = $trade->position_type->value;
         $this->total_contracts = $trade->total_contracts;
         $this->entry_price = $trade->entry_price;
-        $this->entry_date = thai_date($trade->entry_date);
+        $this->entry_date = $trade->entry_date->toDateString();
         $this->note = $trade->note;
         $this->showTradeModal = true;
     }
@@ -101,24 +102,24 @@ new class extends BaseIndexComponent {
     public function save(): void
     {
         try {
-            $tradeDate = thai_date_to_ad($this->trade_date);
-        } catch (\InvalidArgumentException) {
-            $this->addError('trade_date', 'กรุณาระบุวันที่ พ.ศ. ในรูปแบบ วว/ดด/ปปปป');
+            $tradeDate = Carbon::parse($this->trade_date)->toDateString();
+        } catch (\Throwable) {
+            $this->addError('trade_date', 'กรุณาเลือก Trade date จาก date picker');
 
             return;
         }
 
         try {
-            $entryDate = thai_date_to_ad($this->entry_date);
-        } catch (\InvalidArgumentException) {
-            $this->addError('entry_date', 'กรุณาระบุวันที่ พ.ศ. ในรูปแบบ วว/ดด/ปปปป');
+            $entryDate = Carbon::parse($this->entry_date)->toDateString();
+        } catch (\Throwable) {
+            $this->addError('entry_date', 'กรุณาเลือก Entry date จาก date picker');
 
             return;
         }
 
         $data = $this->validate([
-            'trade_date' => 'required|string', 'contract' => 'required|string|max:50', 'position_type' => 'required|in:long,short', 'total_contracts' => 'required|integer|min:1',
-            'entry_price' => 'required|numeric|min:0', 'entry_date' => 'required|string', 'note' => 'nullable|string|max:5000',
+            'trade_date' => 'required|date', 'contract' => 'required|string|max:50', 'position_type' => 'required|in:long,short', 'total_contracts' => 'required|integer|min:1',
+            'entry_price' => 'required|numeric|min:0', 'entry_date' => 'required|date', 'note' => 'nullable|string|max:5000',
         ]);
         $data['trade_date'] = $tradeDate;
         $data['entry_date'] = $entryDate;
@@ -351,34 +352,16 @@ new class extends BaseIndexComponent {
         return $this->costCalculator()->totalCostFor($exit, $trade);
     }
 
-    public function openingCostFor(Trade $trade): float
+    public function totalTradeCostFor(Trade $trade): float
     {
-        return $this->costCalculator()->openingTotalCostFor($trade);
+        $closingCost = $trade->exits->sum(fn(TradeExit $exit): float => $this->costCalculator()->closingTotalCostFor($exit, $trade));
+
+        return round($this->costCalculator()->openingTotalCostFor($trade) + $closingCost, 2);
     }
 
-    public function openingCommissionFor(Trade $trade): float
+    public function netTotalFor(Trade $trade): float
     {
-        return $this->costCalculator()->openingCommissionFor($trade);
-    }
-
-    public function openingVatFor(Trade $trade): float
-    {
-        return $this->costCalculator()->openingVatFor($trade);
-    }
-
-    public function closingCommissionFor(Trade $trade): float
-    {
-        return round($trade->exits->sum(fn(TradeExit $exit): float => $this->costCalculator()->closingCommissionFor($exit, $trade)), 2);
-    }
-
-    public function closingVatFor(Trade $trade): float
-    {
-        return round($trade->exits->sum(fn(TradeExit $exit): float => $this->costCalculator()->closingVatFor($exit, $trade)), 2);
-    }
-
-    public function closingCostFor(Trade $trade): float
-    {
-        return round($trade->exits->sum(fn(TradeExit $exit): float => $this->costCalculator()->closingTotalCostFor($exit, $trade)), 2);
+        return round($trade->exits->sum(fn(TradeExit $exit): float => $this->costCalculator()->netFor($exit, $trade)), 2);
     }
 
     public function closeCommissionFor(Trade $trade, TradeExit $exit): float
@@ -409,8 +392,8 @@ new class extends BaseIndexComponent {
     private function resetTradeForm(): void
     {
         $this->editingId = null;
-        $this->trade_date = thai_date(today());
-        $this->entry_date = thai_date(today());
+        $this->trade_date = today()->toDateString();
+        $this->entry_date = today()->toDateString();
         $this->contract = (string)(Contract::where('is_active', true)->orderBy('symbol')->value('symbol') ?? '');
         $this->position_type = 'long';
         $this->total_contracts = 1;
@@ -450,12 +433,8 @@ new class extends BaseIndexComponent {
                     <flux:table.column>Closed</flux:table.column>
                     <flux:table.column>Remaining</flux:table.column>
                     <flux:table.column>Entry</flux:table.column>
-                    <flux:table.column>Open Commission</flux:table.column>
-                    <flux:table.column>Open VAT</flux:table.column>
-{{--                    <flux:table.column>Open Cost</flux:table.column>--}}
-{{--                    <flux:table.column>Close Commission</flux:table.column>--}}
-{{--                    <flux:table.column>Close VAT</flux:table.column>--}}
-{{--                    <flux:table.column>Close Cost</flux:table.column>--}}
+                    <flux:table.column>Cost</flux:table.column>
+                    <flux:table.column>Net P/L</flux:table.column>
                     <flux:table.column>Status</flux:table.column>
                     <flux:table.column></flux:table.column>
                 </flux:table.columns>
@@ -472,18 +451,19 @@ new class extends BaseIndexComponent {
                             <flux:table.cell>{{ $trade->closedContracts() }}</flux:table.cell>
                             <flux:table.cell variant="strong">{{ $trade->remainingContracts() }}</flux:table.cell>
                             <flux:table.cell>{{ number_format($trade->entry_price, 2) }}</flux:table.cell>
-                            <flux:table.cell>{{ number_format($this->openingCommissionFor($trade), 2) }}</flux:table.cell>
-                            <flux:table.cell>{{ number_format($this->openingVatFor($trade), 2) }}</flux:table.cell>
-{{--                            <flux:table.cell>{{ number_format($this->openingCostFor($trade), 2) }}</flux:table.cell>--}}
-{{--                            <flux:table.cell>{{ number_format($this->closingCommissionFor($trade), 2) }}</flux:table.cell>--}}
-{{--                            <flux:table.cell>{{ number_format($this->closingVatFor($trade), 2) }}</flux:table.cell>--}}
-{{--                            <flux:table.cell>{{ number_format($this->closingCostFor($trade), 2) }}</flux:table.cell>--}}
+                            <flux:table.cell>{{ number_format($this->totalTradeCostFor($trade), 2) }}</flux:table.cell>
+                            <flux:table.cell
+                                variant="strong"
+                                class="{{ $trade->exits->isEmpty() ? '' : ($this->netTotalFor($trade) >= 0 ? 'text-green-600' : 'text-red-600') }}"
+                            >{{ $trade->exits->isEmpty() ? '—' : number_format($this->netTotalFor($trade), 2) }}</flux:table.cell>
                             <flux:table.cell>
                                 <flux:badge :color="$trade->status->badgeColor()"
                                             size="sm">{{ $trade->status->label() }}</flux:badge>
                             </flux:table.cell>
                             <flux:table.cell>
                                 <div class="flex justify-end gap-1">
+                                    <flux:button size="sm" icon="eye" :href="route('trades.show', $trade)" wire:navigate>Detail
+                                    </flux:button>
                                     <flux:button size="sm" icon="pencil" wire:click="edit({{ $trade->id }})">Edit
                                     </flux:button>
                                     <flux:button size="sm" icon="arrow-right-start-on-rectangle"
@@ -498,7 +478,7 @@ new class extends BaseIndexComponent {
                         </flux:table.row>
                         @if ($trade->exits->isNotEmpty())
                             <flux:table.row :key="'exits-'.$trade->id">
-                                <flux:table.cell colspan="15">
+                                <flux:table.cell colspan="11">
                                     <div class="ml-6 space-y-2 rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-800">
                                         <div class="font-medium">Partial close history</div>
                                         @foreach($trade->exits as $exit)
@@ -508,7 +488,7 @@ new class extends BaseIndexComponent {
                                                 <span>@ {{ number_format($exit->exit_price, 2) }}</span>
                                                 <span>Commission {{ number_format($this->closeCommissionFor($trade, $exit), 2) }}</span>
                                                 <span>VAT {{ number_format($this->closeVatFor($trade, $exit), 2) }}</span>
-                                                <span class="text-red-400">Close Cost {{ number_format($this->closeCostFor($trade, $exit), 2) }}</span>
+                                                <span class="">Close Cost {{ number_format($this->closeCostFor($trade, $exit), 2) }}</span>
                                                 <span class="{{ $exit->gross_profit >= 0 ? 'text-green-600' : 'text-red-600' }}">Gross {{ number_format($exit->gross_profit, 2) }}</span>
                                                 <span class="{{ $this->netFor($trade, $exit) >= 0 ? 'text-green-600' : 'text-red-600' }}">Net {{ number_format($this->netFor($trade, $exit), 2) }}</span>
                                                 <span class="flex justify-end gap-1">
@@ -523,7 +503,7 @@ new class extends BaseIndexComponent {
                         @endif
                     @empty
                         <flux:table.row>
-                            <flux:table.cell colspan="15">
+                            <flux:table.cell colspan="11">
                                 <div class="py-8 text-center text-zinc-500">No trades found.</div>
                             </flux:table.cell>
                         </flux:table.row>
@@ -537,8 +517,7 @@ new class extends BaseIndexComponent {
         <form wire:submit="save" class="space-y-5">
             <flux:heading size="lg">{{ $editingId ? 'Edit trade' : 'New trade' }}</flux:heading>
             <div class="grid grid-cols-2 gap-4">
-                <flux:input wire:model="trade_date" label="Trade date (พ.ศ.)" placeholder="วว/ดด/ปปปป"
-                            description="ตัวอย่าง 20/06/2569" inputmode="numeric" required/>
+                @include('partials.thai-date-picker', ['field' => 'trade_date', 'label' => 'Trade date (พ.ศ.)'])
                 <flux:select wire:model="contract" label="Contract" placeholder="Select a contract"
                              required>@foreach($this->availableContracts as $item)
                         <flux:select.option
@@ -553,8 +532,7 @@ new class extends BaseIndexComponent {
                 <flux:input type="number" min="1" wire:model="total_contracts" label="Contracts" required/>
             </div>
             <flux:input type="number" step="0.01" wire:model="entry_price" label="Entry price" required/>
-            <flux:input wire:model="entry_date" label="Entry date (พ.ศ.)" placeholder="วว/ดด/ปปปป"
-                        description="ตัวอย่าง 20/06/2569" inputmode="numeric" required/>
+            @include('partials.thai-date-picker', ['field' => 'entry_date', 'label' => 'Entry date (พ.ศ.)'])
             <flux:textarea wire:model="note" label="Note" rows="3"/>
             <div class="flex justify-end gap-2">
                 <flux:button type="button" wire:click="$set('showTradeModal', false)">Cancel</flux:button>
@@ -581,7 +559,7 @@ new class extends BaseIndexComponent {
                 </div>
             </div>
             <div class="grid grid-cols-2 gap-4">
-                <flux:input type="date" wire:model="exit_date" label="Exit date (AD)" required/>
+                @include('partials.thai-date-picker', ['field' => 'exit_date', 'label' => 'Exit date (พ.ศ.)'])
                 <flux:input type="time" wire:model="exit_time" label="Exit time"/>
             </div>
             <div class="grid grid-cols-2 gap-4">

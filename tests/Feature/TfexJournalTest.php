@@ -162,7 +162,11 @@ it('shows saved trade exit cost even when the commission relation is missing', f
     $this->actingAs(User::where('email', 'admin@example.com')->firstOrFail())
         ->get('/trades')
         ->assertOk()
-        ->assertSee('Close Cost 85.60');
+        ->assertSee('Commission 80.00')
+        ->assertSee('VAT 5.60')
+        ->assertSee('Close Cost 85.60')
+        ->assertSee('Gross 2,000.00')
+        ->assertSee('Net 1,828.80');
 });
 
 it('calculates trade exit cost from commission rate when saved cost is zero', function () {
@@ -207,7 +211,10 @@ it('calculates trade exit cost from commission rate when saved cost is zero', fu
     $this->actingAs(User::where('email', 'admin@example.com')->firstOrFail())
         ->get('/trades')
         ->assertOk()
-        ->assertSee('Close Cost 85.60');
+        ->assertSee('Commission 80.00')
+        ->assertSee('VAT 5.60')
+        ->assertSee('Close Cost 85.60')
+        ->assertSee('Net 1,828.80');
 });
 
 it('shows the opening cost on the trades table', function () {
@@ -236,7 +243,7 @@ it('shows the opening cost on the trades table', function () {
         ->assertSee('171.20');
 });
 
-it('shows the close cost on the trades table', function () {
+it('shows close commission vat and cost on the trades table', function () {
     Livewire::test('pages::trades.index')
         ->set('trade_date', '2026-06-20')
         ->set('contract', 'S50')
@@ -260,12 +267,14 @@ it('shows the close cost on the trades table', function () {
         ->get('/trades')
         ->assertOk()
         ->assertSee('Open Cost')
-        ->assertSee('Close Cost')
         ->assertSee('Close Commission')
         ->assertSee('Close VAT')
+        ->assertSee('Close Cost')
         ->assertSee('Gross 2,000.00')
         ->assertSee('Net 1,828.80')
         ->assertSee('171.20')
+        ->assertSee('80.00')
+        ->assertSee('5.60')
         ->assertSee('85.60');
 });
 
@@ -303,7 +312,7 @@ it('calculates costs for a dated S50 contract before the first effective rate da
     $this->actingAs(User::where('email', 'admin@example.com')->firstOrFail())
         ->get('/trades')
         ->assertOk()
-        ->assertSee('19/06/2569')
+        ->assertSee('19 มิ.ย. 2569')
         ->assertSee('S50M26')
         ->assertSee('Short')
         ->assertSee('1,030.70')
@@ -429,7 +438,7 @@ it('uses the underlying commission rate when closing a dated contract symbol', f
         ->get('/reports')
         ->assertOk()
         ->assertSee('Trade date')
-        ->assertSee('20/06/2569')
+        ->assertSee('20 มิ.ย. 2569')
         ->assertSee('S50M26')
         ->assertSee('160.00')
         ->assertSee('11.20');
@@ -706,19 +715,60 @@ it('rebases later equity snapshots when a historical withdrawal is added', funct
         ->and($account->fresh()->current_balance)->toBe('92828.80');
 });
 
-it('accepts a Buddhist Era trade date and stores it as Gregorian', function () {
+it('stores AD dates entered via the date picker and displays them in Buddhist Era format', function () {
     Livewire::test('pages::trades.index')
-        ->set('trade_date', '20/06/2569')
+        ->set('trade_date', '2026-06-20')
         ->set('contract', 'S50')
         ->set('position_type', 'long')
         ->set('total_contracts', 1)
         ->set('entry_price', 1000)
-        ->set('entry_date', '20/06/2569')
+        ->set('entry_date', '2026-06-20')
         ->call('save')
-        ->assertHasNoErrors();
+        ->assertHasNoErrors()
+        ->assertSee('20 มิ.ย. 2569');
 
     expect(Trade::first()->trade_date->toDateString())->toBe('2026-06-20')
         ->and(Trade::first()->entry_date->toDateString())->toBe('2026-06-20');
+});
+
+it('populates the edit form with AD date strings for the date pickers', function () {
+    $account = TradingAccount::first();
+    $trade = $account->trades()->create([
+        'trade_date' => '2026-06-15',
+        'contract' => 'S50',
+        'position_type' => 'long',
+        'total_contracts' => 1,
+        'entry_price' => 1000,
+        'entry_date' => '2026-06-16',
+        'status' => 'open',
+    ]);
+
+    Livewire::test('pages::trades.index')
+        ->call('edit', $trade->id)
+        ->assertSet('trade_date', '2026-06-15')
+        ->assertSet('entry_date', '2026-06-16');
+});
+
+it('rejects an unparsable trade date or entry date from the date picker', function () {
+    Livewire::test('pages::trades.index')
+        ->set('trade_date', 'not-a-date')
+        ->set('contract', 'S50')
+        ->set('position_type', 'long')
+        ->set('total_contracts', 1)
+        ->set('entry_price', 1000)
+        ->set('entry_date', '2026-06-20')
+        ->call('save')
+        ->assertHasErrors(['trade_date']);
+
+    Livewire::test('pages::trades.index')
+        ->set('trade_date', '2026-06-20')
+        ->set('contract', 'S50')
+        ->set('position_type', 'long')
+        ->set('total_contracts', 1)
+        ->set('entry_price', 1000)
+        ->set('entry_date', 'not-a-date')
+        ->call('save')
+        ->assertHasErrors(['entry_date']);
 });
 
 it('partially closes two of ten contracts and leaves eight open', function () {
@@ -759,7 +809,7 @@ it('creates a contract and selects it for a new trade', function () {
     $contract = Contract::where('symbol', 'GOLD')->firstOrFail();
 
     Livewire::test('pages::trades.index')
-        ->set('trade_date', '20/06/2569')
+        ->set('trade_date', '2026-06-20')
         ->set('contract', 'GOLD')
         ->set('position_type', 'long')
         ->set('total_contracts', 1)

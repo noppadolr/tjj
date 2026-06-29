@@ -8,9 +8,19 @@ use App\Models\CommissionRate;
 use App\Models\Trade;
 use App\Models\TradeCommission;
 use App\Models\TradeExit;
+use Illuminate\Support\Carbon;
 
 class TradeCostCalculator
 {
+    /**
+     * Per-request memoization of commission rate lookups, keyed by "contract|date".
+     * Safe because this class is bound as a singleton (see AppServiceProvider), so the
+     * cache lives only for the duration of one request/render and is rebuilt fresh each time.
+     *
+     * @var array<string, CommissionRate|null>
+     */
+    private array $commissionRateCache = [];
+
     public function openingCommissionFor(Trade $trade): float
     {
         $rate = $this->commissionRateForTrade($trade, $trade->trade_date);
@@ -132,6 +142,13 @@ class TradeCostCalculator
     private function commissionRateForTrade(?Trade $trade, mixed $effectiveDate): ?CommissionRate
     {
         $contract = strtoupper((string) $trade?->contract);
+        $date = Carbon::parse($effectiveDate)->format('Y-m-d');
+        $cacheKey = $contract.'|'.$date;
+
+        if (array_key_exists($cacheKey, $this->commissionRateCache)) {
+            return $this->commissionRateCache[$cacheKey];
+        }
+
         $underlying = preg_replace('/[FGHJKMNQUVXZ]\d{2}$/', '', $contract) ?: $contract;
         $contracts = collect([$contract, $underlying])->filter()->unique()->values();
 
@@ -140,11 +157,13 @@ class TradeCostCalculator
             ->whereIn('contract', $contracts)
             ->orderByRaw('case when contract = ? then 0 else 1 end', [$contract]);
 
-        return (clone $query)
-            ->whereDate('effective_date', '<=', $effectiveDate)
+        $rate = (clone $query)
+            ->whereDate('effective_date', '<=', $date)
             ->latest('effective_date')
             ->first()
             ?? $query->oldest('effective_date')->first();
+
+        return $this->commissionRateCache[$cacheKey] = $rate;
     }
 
     private function tradeCommissionFor(TradeExit $exit): ?TradeCommission

@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Support\TradeCostCalculator;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -15,7 +16,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Shared once per request so its internal commission-rate cache is reused
+        // across every call instead of querying the database again for each one.
+        $this->app->singleton(TradeCostCalculator::class);
     }
 
     /**

@@ -437,7 +437,7 @@ new class extends BaseIndexComponent {
                 <flux:select.option value="withdrawal">ถอนเงิน</flux:select.option>
             </flux:select>
             <flux:input type="number" min="0.01" step="0.01" wire:model="transaction_amount" label="จำนวนเงิน" required />
-            <flux:input type="date" wire:model="transaction_date" label="วันที่ (AD)" required />
+            @include('partials.thai-date-picker', ['field' => 'transaction_date', 'label' => 'วันที่ (พ.ศ.)'])
             <flux:textarea wire:model="transaction_note" label="หมายเหตุ" rows="3" />
             <div class="flex justify-end gap-2">
                 <flux:button type="button" wire:click="$set('showTransactionModal', false)">Cancel</flux:button>

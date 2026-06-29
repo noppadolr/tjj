@@ -117,7 +117,7 @@ new class extends BaseIndexComponent {
             <flux:input wire:model="broker_name" label="Broker name" placeholder="เช่น BLS, KGI, Finansia" />
             <flux:input wire:model="contract" label="Contract" required />
             <div class="grid grid-cols-2 gap-4"><flux:input type="number" step="0.01" wire:model="commission_per_contract" label="Commission / contract" required /><flux:input type="number" step="0.01" wire:model="vat_percent" label="VAT percent" required /></div>
-            <flux:input type="date" wire:model="effective_date" label="Effective date (AD)" required />
+            @include('partials.thai-date-picker', ['field' => 'effective_date', 'label' => 'Effective date (พ.ศ.)'])
             <flux:switch wire:model="is_active" label="Active" />
             <div class="flex justify-end gap-2"><flux:button type="button" wire:click="$set('showModal', false)">Cancel</flux:button><flux:button type="submit" variant="primary">Save</flux:button></div>
         </form>

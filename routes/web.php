@@ -8,6 +8,7 @@ Route::redirect('/', '/dashboard')->name('home');
 Route::middleware('auth')->group(function () {
     Route::livewire('/dashboard', 'pages::dashboard.index')->name('dashboard');
     Route::livewire('/trades', 'pages::trades.index')->name('trades.index');
+    Route::livewire('/trades/{trade}', 'pages::trades.show')->name('trades.show');
     Route::livewire('/contracts', 'pages::contracts.index')->name('contracts.index');
     Route::livewire('/accounts', 'pages::accounts.index')->name('accounts.index');
     Route::livewire('/commissions', 'pages::commissions.index')->name('commissions.index');
