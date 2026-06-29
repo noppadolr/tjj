@@ -61,6 +61,7 @@ new class extends Component {
         $periodStart = $this->from ? (float) ($snapshots->first()?->balance_before ?? $currentBalance) : $initial;
 
         $net = (float)$exits->sum(fn($exit)=>$this->netFor($exit)); $grossProfit=(float)$exits->where('gross_profit','>',0)->sum('gross_profit'); $grossLoss=(float)$exits->where('gross_profit','<',0)->sum('gross_profit');
+        $profitFactor = $grossLoss != 0.0 ? $grossProfit / abs($grossLoss) : 0;
         $profits=$exits->filter(fn($exit)=>$this->netFor($exit)>0); $losses=$exits->filter(fn($exit)=>$this->netFor($exit)<0);
         $peak=$periodStart; $maxDrawdown=0; $minBalance=$periodStart;
         foreach ($snapshots as $snapshot) { $balance=(float)$snapshot->balance_after; $peak=max($peak,$balance); $minBalance=min($minBalance,$balance); $maxDrawdown=max($maxDrawdown,$peak-$balance); }
@@ -68,6 +69,7 @@ new class extends Component {
         $tradeNet=fn($trade)=>(float)$trade->exits->sum(fn($exit)=>$this->netFor($exit));
         $longWins=$long->filter(fn($t)=>$tradeNet($t)>0)->count(); $shortWins=$short->filter(fn($t)=>$tradeNet($t)>0)->count();
         $longLosses=$long->filter(fn($t)=>$tradeNet($t)<0)->count(); $shortLosses=$short->filter(fn($t)=>$tradeNet($t)<0)->count();
+        $totalWins=$trades->filter(fn($t)=>$tradeNet($t)>0)->count(); $totalLosses=$trades->filter(fn($t)=>$tradeNet($t)<0)->count();
         $streak=function(bool $winning) use($exits){ $best=$current=0; foreach($exits as $exit){ $net=$this->netFor($exit); if($winning ? $net>0 : $net<0){$current++;$best=max($best,$current);}else{$current=0;}} return $best; };
         $totalCommission=(float)$exits->sum(fn($exit)=>$this->commissionFor($exit)); $totalVat=(float)$exits->sum(fn($exit)=>$this->vatFor($exit)); $totalCost=round($totalCommission+$totalVat,2);
 
