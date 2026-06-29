@@ -135,13 +135,16 @@ class TradeCostCalculator
         $underlying = preg_replace('/[FGHJKMNQUVXZ]\d{2}$/', '', $contract) ?: $contract;
         $contracts = collect([$contract, $underlying])->filter()->unique()->values();
 
-        return CommissionRate::query()
+        $query = CommissionRate::query()
             ->where('is_active', true)
-            ->whereDate('effective_date', '<=', $effectiveDate)
             ->whereIn('contract', $contracts)
-            ->orderByRaw('case when contract = ? then 0 else 1 end', [$contract])
+            ->orderByRaw('case when contract = ? then 0 else 1 end', [$contract]);
+
+        return (clone $query)
+            ->whereDate('effective_date', '<=', $effectiveDate)
             ->latest('effective_date')
-            ->first();
+            ->first()
+            ?? $query->oldest('effective_date')->first();
     }
 
     private function tradeCommissionFor(TradeExit $exit): ?TradeCommission

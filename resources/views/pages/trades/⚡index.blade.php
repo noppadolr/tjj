@@ -67,7 +67,7 @@ new class extends BaseIndexComponent {
     {
         return Trade::query()
             ->with('exits.tradeCommission')
-            ->when($this->search, fn (Builder $query) => $query->where('contract', 'like', '%'.$this->search.'%'))
+            ->when($this->search, fn(Builder $query) => $query->where('contract', 'like', '%' . $this->search . '%'))
             ->latest('trade_date')
             ->latest('id');
     }
@@ -164,7 +164,7 @@ new class extends BaseIndexComponent {
             $remaining = $trade->remainingContracts();
             if ((int)$this->exit_contracts > $remaining) throw ValidationException::withMessages(['exit_contracts' => "Only {$remaining} contracts remain."]);
 
-            $contract = strtoupper((string) $trade->contract);
+            $contract = strtoupper((string)$trade->contract);
             $underlying = preg_replace('/[FGHJKMNQUVXZ]\d{2}$/', '', $contract) ?: $contract;
             $rate = CommissionRate::query()
                 ->where('is_active', true)
@@ -356,14 +356,49 @@ new class extends BaseIndexComponent {
         return $this->costCalculator()->openingTotalCostFor($trade);
     }
 
+    public function openingCommissionFor(Trade $trade): float
+    {
+        return $this->costCalculator()->openingCommissionFor($trade);
+    }
+
+    public function openingVatFor(Trade $trade): float
+    {
+        return $this->costCalculator()->openingVatFor($trade);
+    }
+
+    public function closingCommissionFor(Trade $trade): float
+    {
+        return round($trade->exits->sum(fn(TradeExit $exit): float => $this->costCalculator()->closingCommissionFor($exit, $trade)), 2);
+    }
+
+    public function closingVatFor(Trade $trade): float
+    {
+        return round($trade->exits->sum(fn(TradeExit $exit): float => $this->costCalculator()->closingVatFor($exit, $trade)), 2);
+    }
+
     public function closingCostFor(Trade $trade): float
     {
-        return round($trade->exits->sum(fn (TradeExit $exit): float => $this->costCalculator()->closingTotalCostFor($exit, $trade)), 2);
+        return round($trade->exits->sum(fn(TradeExit $exit): float => $this->costCalculator()->closingTotalCostFor($exit, $trade)), 2);
+    }
+
+    public function closeCommissionFor(Trade $trade, TradeExit $exit): float
+    {
+        return $this->costCalculator()->closingCommissionFor($exit, $trade);
+    }
+
+    public function closeVatFor(Trade $trade, TradeExit $exit): float
+    {
+        return $this->costCalculator()->closingVatFor($exit, $trade);
     }
 
     public function closeCostFor(Trade $trade, TradeExit $exit): float
     {
         return $this->costCalculator()->closingTotalCostFor($exit, $trade);
+    }
+
+    public function netFor(Trade $trade, TradeExit $exit): float
+    {
+        return $this->costCalculator()->netFor($exit, $trade);
     }
 
     private function costCalculator(): TradeCostCalculator
@@ -415,8 +450,12 @@ new class extends BaseIndexComponent {
                     <flux:table.column>Closed</flux:table.column>
                     <flux:table.column>Remaining</flux:table.column>
                     <flux:table.column>Entry</flux:table.column>
-                    <flux:table.column>Open Cost</flux:table.column>
-                    <flux:table.column>Close Cost</flux:table.column>
+                    <flux:table.column>Open Commission</flux:table.column>
+                    <flux:table.column>Open VAT</flux:table.column>
+{{--                    <flux:table.column>Open Cost</flux:table.column>--}}
+{{--                    <flux:table.column>Close Commission</flux:table.column>--}}
+{{--                    <flux:table.column>Close VAT</flux:table.column>--}}
+{{--                    <flux:table.column>Close Cost</flux:table.column>--}}
                     <flux:table.column>Status</flux:table.column>
                     <flux:table.column></flux:table.column>
                 </flux:table.columns>
@@ -433,8 +472,12 @@ new class extends BaseIndexComponent {
                             <flux:table.cell>{{ $trade->closedContracts() }}</flux:table.cell>
                             <flux:table.cell variant="strong">{{ $trade->remainingContracts() }}</flux:table.cell>
                             <flux:table.cell>{{ number_format($trade->entry_price, 2) }}</flux:table.cell>
-                            <flux:table.cell>{{ number_format($this->openingCostFor($trade), 2) }}</flux:table.cell>
-                            <flux:table.cell>{{ number_format($this->closingCostFor($trade), 2) }}</flux:table.cell>
+                            <flux:table.cell>{{ number_format($this->openingCommissionFor($trade), 2) }}</flux:table.cell>
+                            <flux:table.cell>{{ number_format($this->openingVatFor($trade), 2) }}</flux:table.cell>
+{{--                            <flux:table.cell>{{ number_format($this->openingCostFor($trade), 2) }}</flux:table.cell>--}}
+{{--                            <flux:table.cell>{{ number_format($this->closingCommissionFor($trade), 2) }}</flux:table.cell>--}}
+{{--                            <flux:table.cell>{{ number_format($this->closingVatFor($trade), 2) }}</flux:table.cell>--}}
+{{--                            <flux:table.cell>{{ number_format($this->closingCostFor($trade), 2) }}</flux:table.cell>--}}
                             <flux:table.cell>
                                 <flux:badge :color="$trade->status->badgeColor()"
                                             size="sm">{{ $trade->status->label() }}</flux:badge>
@@ -455,19 +498,24 @@ new class extends BaseIndexComponent {
                         </flux:table.row>
                         @if ($trade->exits->isNotEmpty())
                             <flux:table.row :key="'exits-'.$trade->id">
-                                <flux:table.cell colspan="11">
+                                <flux:table.cell colspan="15">
                                     <div class="ml-6 space-y-2 rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-800">
                                         <div class="font-medium">Partial close history</div>
                                         @foreach($trade->exits as $exit)
                                             <div
-                                                class="grid grid-cols-2 items-center gap-2 text-zinc-600 sm:grid-cols-6 dark:text-zinc-300">
+                                                class="grid grid-cols-2 items-center gap-2 text-zinc-600 sm:grid-cols-9 dark:text-zinc-300">
                                                 <span>{{ thai_date($exit->exit_date) }}</span><span>ปิด {{ $exit->exit_contracts }} สัญญา</span>
                                                 <span>@ {{ number_format($exit->exit_price, 2) }}</span>
-{{--                                                <span>Close Cost {{ number_format($this->closeCostFor($trade, $exit), 2) }}</span>--}}
-                                                <span class="{{ $exit->net_profit >= 0 ? 'text-green-600' : 'text-red-600' }}">Net {{ number_format($exit->net_profit, 2) }}</span><span
-                                                    class="flex justify-end gap-1"><flux:button size="sm" icon="pencil"
-                                                                                    wire:click="editExit({{ $exit->id }})">Edit price</flux:button><flux:button size="sm" variant="danger" icon="x-mark"
-                                                                                    wire:click="confirmCancelExit({{ $exit->id }})">ยกเลิกปิด</flux:button></span>
+                                                <span>Commission {{ number_format($this->closeCommissionFor($trade, $exit), 2) }}</span>
+                                                <span>VAT {{ number_format($this->closeVatFor($trade, $exit), 2) }}</span>
+                                                <span class="text-red-400">Close Cost {{ number_format($this->closeCostFor($trade, $exit), 2) }}</span>
+                                                <span class="{{ $exit->gross_profit >= 0 ? 'text-green-600' : 'text-red-600' }}">Gross {{ number_format($exit->gross_profit, 2) }}</span>
+                                                <span class="{{ $this->netFor($trade, $exit) >= 0 ? 'text-green-600' : 'text-red-600' }}">Net {{ number_format($this->netFor($trade, $exit), 2) }}</span>
+                                                <span class="flex justify-end gap-1">
+                                                    <flux:button size="sm" icon="pencil"
+                                                                 wire:click="editExit({{ $exit->id }})">Edit price</flux:button><flux:button
+                                                        size="sm" variant="danger" icon="x-mark"
+                                                        wire:click="confirmCancelExit({{ $exit->id }})">ยกเลิกปิด</flux:button></span>
                                             </div>
                                         @endforeach</div>
                                 </flux:table.cell>
@@ -475,7 +523,7 @@ new class extends BaseIndexComponent {
                         @endif
                     @empty
                         <flux:table.row>
-                            <flux:table.cell colspan="11">
+                            <flux:table.cell colspan="15">
                                 <div class="py-8 text-center text-zinc-500">No trades found.</div>
                             </flux:table.cell>
                         </flux:table.row>
@@ -582,7 +630,9 @@ new class extends BaseIndexComponent {
             <div>
                 <flux:heading size="lg">ยกเลิกการปิดสัญญา?</flux:heading>
                 <flux:text class="mt-2">{{ $cancellingExitLabel }}</flux:text>
-                <flux:text class="mt-2">รายการปิด ค่าคอมมิชชัน และ Equity Snapshot นี้จะถูกยกเลิก พร้อมคำนวณยอดคงเหลือใหม่</flux:text>
+                <flux:text class="mt-2">รายการปิด ค่าคอมมิชชัน และ Equity Snapshot นี้จะถูกยกเลิก
+                    พร้อมคำนวณยอดคงเหลือใหม่
+                </flux:text>
             </div>
             <div class="flex justify-end gap-2">
                 <flux:button wire:click="$set('showCancelExitModal', false)">ไม่ยกเลิก</flux:button>

@@ -1,10 +1,10 @@
 <?php
 
+use App\Models\AccountTransaction;
 use App\Models\CommissionRate;
 use App\Models\Contract;
 use App\Models\EquitySnapshot;
 use App\Models\Trade;
-use App\Models\AccountTransaction;
 use App\Models\TradeCommission;
 use App\Models\TradeExit;
 use App\Models\TradingAccount;
@@ -228,7 +228,11 @@ it('shows the opening cost on the trades table', function () {
     $this->actingAs(User::where('email', 'admin@example.com')->firstOrFail())
         ->get('/trades')
         ->assertOk()
+        ->assertSee('Open Commission')
+        ->assertSee('Open VAT')
         ->assertSee('Open Cost')
+        ->assertSee('160.00')
+        ->assertSee('11.20')
         ->assertSee('171.20');
 });
 
@@ -257,8 +261,62 @@ it('shows the close cost on the trades table', function () {
         ->assertOk()
         ->assertSee('Open Cost')
         ->assertSee('Close Cost')
+        ->assertSee('Close Commission')
+        ->assertSee('Close VAT')
+        ->assertSee('Gross 2,000.00')
+        ->assertSee('Net 1,828.80')
         ->assertSee('171.20')
         ->assertSee('85.60');
+});
+
+it('calculates costs for a dated S50 contract before the first effective rate date', function () {
+    CommissionRate::where('contract', 'S50')->update(['effective_date' => '2026-06-29']);
+
+    $account = TradingAccount::first();
+    $contract = Contract::firstOrCreate(
+        ['symbol' => 'S50M26'],
+        ['name' => 'SET50 Futures Jun 2026', 'multiplier' => 200, 'is_active' => true],
+    );
+
+    $trade = $account->trades()->create([
+        'contract_id' => $contract->id,
+        'trade_date' => '2026-06-19',
+        'contract' => 'S50M26',
+        'position_type' => 'short',
+        'total_contracts' => 1,
+        'entry_price' => 1030.70,
+        'entry_date' => '2026-06-19',
+        'status' => 'closed',
+    ]);
+
+    $trade->exits()->create([
+        'exit_date' => '2026-06-19',
+        'exit_price' => 1020,
+        'exit_contracts' => 1,
+        'gross_profit' => 2140,
+        'commission' => 0,
+        'vat' => 0,
+        'total_cost' => 0,
+        'net_profit' => 2140,
+    ]);
+
+    $this->actingAs(User::where('email', 'admin@example.com')->firstOrFail())
+        ->get('/trades')
+        ->assertOk()
+        ->assertSee('19/06/2569')
+        ->assertSee('S50M26')
+        ->assertSee('Short')
+        ->assertSee('1,030.70')
+        ->assertSee('Open Commission')
+        ->assertSee('Open VAT')
+        ->assertSee('Open Cost')
+        ->assertSee('Close Commission')
+        ->assertSee('Close VAT')
+        ->assertSee('Close Cost')
+        ->assertSee('80.00')
+        ->assertSee('5.60')
+        ->assertSee('85.60')
+        ->assertDontSee('Cost 0.00');
 });
 
 it('shows the current active account balance on the dashboard', function () {
@@ -370,6 +428,8 @@ it('uses the underlying commission rate when closing a dated contract symbol', f
     $this->actingAs(User::where('email', 'admin@example.com')->firstOrFail())
         ->get('/reports')
         ->assertOk()
+        ->assertSee('Trade date')
+        ->assertSee('20/06/2569')
         ->assertSee('S50M26')
         ->assertSee('160.00')
         ->assertSee('11.20');

@@ -52,6 +52,7 @@ class ReportExportController extends Controller
             ->get()
             ->map(fn (TradeExit $exit): array => [
                 'Exit date' => $exit->exit_date->toDateString(),
+                'Trade date' => $exit->trade->trade_date->toDateString(),
                 'Contract' => (string) $exit->trade->contract,
                 'Contracts' => (int) $exit->exit_contracts,
                 'Gross' => (float) $exit->gross_profit,
@@ -107,7 +108,7 @@ class ReportExportController extends Controller
      */
     private function sheetXml(Collection $rows): string
     {
-        $headers = ['Exit date', 'Contract', 'Contracts', 'Gross', 'Commission', 'VAT', 'Total Cost', 'Net'];
+        $headers = ['Exit date', 'Trade date', 'Contract', 'Contracts', 'Gross', 'Commission', 'VAT', 'Total Cost', 'Net'];
         $xmlRows = [$this->sheetRow(1, $headers, true)];
 
         foreach ($rows->values() as $index => $row) {
@@ -117,7 +118,7 @@ class ReportExportController extends Controller
         return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             .'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
             .'<sheetViews><sheetView workbookViewId="0"/></sheetViews>'
-            .'<cols><col min="1" max="1" width="14" customWidth="1"/><col min="2" max="2" width="14" customWidth="1"/><col min="3" max="8" width="13" customWidth="1"/></cols>'
+            .'<cols><col min="1" max="2" width="14" customWidth="1"/><col min="3" max="3" width="14" customWidth="1"/><col min="4" max="9" width="13" customWidth="1"/></cols>'
             .'<sheetData>'.implode('', $xmlRows).'</sheetData>'
             .'</worksheet>';
     }
@@ -162,12 +163,13 @@ class ReportExportController extends Controller
     private function createPdf(Collection $rows): string
     {
         $lines = ['TFEX Journal Report', 'Generated: '.now()->format('Y-m-d H:i:s'), ''];
-        $lines[] = 'Date | Contract | Qty | Gross | Commission | VAT | Total Cost | Net';
-        $lines[] = str_repeat('-', 96);
+        $lines[] = 'Exit date | Trade date | Contract | Qty | Gross | Commission | VAT | Total Cost | Net';
+        $lines[] = str_repeat('-', 110);
 
         foreach ($rows as $row) {
             $lines[] = implode(' | ', [
                 $row['Exit date'],
+                $row['Trade date'],
                 $row['Contract'],
                 $row['Contracts'],
                 number_format((float) $row['Gross'], 2),
